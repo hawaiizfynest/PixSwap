@@ -1,0 +1,72 @@
+name: Build apps
+
+# Build the Windows .exe and macOS .app automatically.
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  # Lets you trigger a build by hand from the Actions tab.
+  workflow_dispatch:
+  # When you push a version tag like v1.0, also publish a GitHub Release.
+  release:
+    types: [ published ]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: PixSwap-Windows
+          - os: macos-latest
+            artifact: PixSwap-macOS
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm --clean PixSwap.spec
+
+      # --- Windows: zip the one-folder build ---
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/PixSwap/* -DestinationPath PixSwap-Windows.zip -Force
+
+      # --- macOS: zip the .app bundle (preserves permissions/symlinks) ---
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          # ditto keeps the bundle's symlinks + executable bits intact.
+          ditto -c -k --sequesterRsrc --keepParent PixSwap.app ../PixSwap-macOS.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+      # If this run is for a published release/tag, attach the zip to it.
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}.zip
