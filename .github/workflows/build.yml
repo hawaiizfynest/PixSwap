@@ -4,12 +4,17 @@ name: Build apps
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]          # pushing a version tag (e.g. v1.0.0) builds + releases
   pull_request:
   # Lets you trigger a build by hand from the Actions tab.
   workflow_dispatch:
-  # When you push a version tag like v1.0, also publish a GitHub Release.
+  # Also runs if you create a Release through the GitHub web UI.
   release:
     types: [ published ]
+
+# Needed so the workflow can create/update a GitHub Release.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,10 +31,10 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -64,9 +69,13 @@ jobs:
           path: ${{ matrix.artifact }}.zip
           if-no-files-found: error
 
-      # If this run is for a published release/tag, attach the zip to it.
+      # On a version-tag push OR a published release, attach the zip to a
+      # GitHub Release (created automatically if it doesn't exist yet).
       - name: Attach to release
-        if: github.event_name == 'release'
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.artifact }}.zip
+          # When triggered by a tag push, publish under that tag name.
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
